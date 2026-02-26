@@ -352,6 +352,187 @@ const ADDONS = [
 // Settings storage
 let currentSettings = {};
 let settingsChanged = false;
+const UPDATE_REPO = 'Farlapata/LitbuyTools';
+const UPDATE_REPO_URL = `https://github.com/${UPDATE_REPO}`;
+const UPDATE_CACHE_KEY = 'updateCheckCache';
+const UPDATE_CACHE_TTL_MS = 30 * 60 * 1000;
+
+function parseVersionParts(versionText) {
+  const match = String(versionText || '').match(/(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
+  if (!match) return null;
+  const major = Number(match[1] || 0);
+  const minor = Number(match[2] || 0);
+  const patch = Number(match[3] || 0);
+  return {
+    major,
+    minor,
+    patch,
+    normalized: `${major}.${minor}.${patch}`
+  };
+}
+
+function isRemoteVersionNewer(remoteVersion, currentVersion) {
+  const remote = parseVersionParts(remoteVersion);
+  const current = parseVersionParts(currentVersion);
+  if (!remote || !current) return false;
+
+  if (remote.major !== current.major) return remote.major > current.major;
+  if (remote.minor !== current.minor) return remote.minor > current.minor;
+  return remote.patch > current.patch;
+}
+
+function getLocalStorage(keys) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(keys, resolve);
+  });
+}
+
+function setLocalStorage(items) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set(items, resolve);
+  });
+}
+
+function applyManifestVersion() {
+  const versionTag = document.getElementById('version-tag');
+  if (!versionTag) return;
+
+  const manifest = chrome.runtime.getManifest();
+  const displayVersion = manifest.version_name || manifest.version;
+  versionTag.textContent = `v${displayVersion}`;
+}
+
+function showUpdateBanner(latestVersion, releaseUrl) {
+  const banner = document.getElementById('update-banner');
+  const text = document.getElementById('update-banner-text');
+  const button = document.getElementById('update-banner-btn');
+  if (!banner || !text || !button) return;
+
+  text.textContent = `Update available: v${latestVersion}`;
+  button.onclick = () => {
+    chrome.tabs.create({ url: releaseUrl || UPDATE_REPO_URL });
+  };
+  banner.classList.remove('hidden');
+}
+
+function hideUpdateBanner() {
+  const banner = document.getElementById('update-banner');
+  if (!banner) return;
+  banner.classList.add('hidden');
+}
+
+async function fetchLatestRemoteVersion() {
+  const releaseApi = `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`;
+  const tagsApi = `https://api.github.com/repos/${UPDATE_REPO}/tags?per_page=1`;
+  const remoteManifestUrl = `https://raw.githubusercontent.com/${UPDATE_REPO}/main/manifest.json`;
+  const releaseFallbackUrl = UPDATE_REPO_URL;
+  const repoFallbackUrl = UPDATE_REPO_URL;
+  const requestOptions = {
+    headers: {
+      Accept: 'application/vnd.github+json'
+    }
+  };
+
+  try {
+    const releaseResponse = await fetch(releaseApi, requestOptions);
+    if (releaseResponse.ok) {
+      const release = await releaseResponse.json();
+      const versionInfo = parseVersionParts(release.tag_name || release.name);
+      if (versionInfo) {
+        return {
+          version: versionInfo.normalized,
+          url: release.html_url || releaseFallbackUrl
+        };
+      }
+    }
+  } catch (error) {
+    console.warn('LitbuyTools: releases/latest update check failed.', error);
+  }
+
+  try {
+    const remoteManifestResponse = await fetch(remoteManifestUrl, requestOptions);
+    if (remoteManifestResponse.ok) {
+      const remoteManifest = await remoteManifestResponse.json();
+      const versionInfo = parseVersionParts(remoteManifest.version || remoteManifest.version_name);
+      if (versionInfo) {
+        return {
+          version: versionInfo.normalized,
+          url: releaseFallbackUrl
+        };
+      }
+    }
+  } catch (error) {
+    console.warn('LitbuyTools: remote manifest update check failed.', error);
+  }
+
+  try {
+    const tagsResponse = await fetch(tagsApi, requestOptions);
+    if (!tagsResponse.ok) return null;
+
+    const tags = await tagsResponse.json();
+    if (!Array.isArray(tags) || !tags.length) return null;
+
+    const latestTag = tags[0];
+    const versionInfo = parseVersionParts(latestTag.name);
+    if (!versionInfo) return null;
+
+    return {
+      version: versionInfo.normalized,
+      url: releaseFallbackUrl
+    };
+  } catch (error) {
+    console.warn('LitbuyTools: tag fallback update check failed.', error);
+    return {
+      version: null,
+      url: repoFallbackUrl
+    };
+  }
+}
+
+async function checkForUpdates() {
+  const manifest = chrome.runtime.getManifest();
+  const currentVersion = manifest.version;
+  const now = Date.now();
+
+  try {
+    const cachedData = await getLocalStorage([UPDATE_CACHE_KEY]);
+    const cache = cachedData?.[UPDATE_CACHE_KEY];
+    const cacheIsFresh = cache &&
+      cache.currentVersion === currentVersion &&
+      now - cache.timestamp < UPDATE_CACHE_TTL_MS;
+
+    if (cacheIsFresh) {
+      if (cache.hasUpdate && cache.latestVersion) {
+        showUpdateBanner(cache.latestVersion, cache.releaseUrl);
+      } else {
+        hideUpdateBanner();
+      }
+      return;
+    }
+
+    const latest = await fetchLatestRemoteVersion();
+    const hasUpdate = Boolean(latest?.version && isRemoteVersionNewer(latest.version, currentVersion));
+
+    if (hasUpdate) {
+      showUpdateBanner(latest.version, latest.url);
+    } else {
+      hideUpdateBanner();
+    }
+
+    await setLocalStorage({
+      [UPDATE_CACHE_KEY]: {
+        timestamp: now,
+        currentVersion,
+        hasUpdate,
+        latestVersion: latest?.version || null,
+        releaseUrl: latest?.url || null
+      }
+    });
+  } catch (error) {
+    console.warn('LitbuyTools: update check failed.', error);
+    hideUpdateBanner();
+  }
+}
 
 // Load settings from storage
 async function loadSettings() {
@@ -709,6 +890,8 @@ function setupSettingsPanel() {
 
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
+  applyManifestVersion();
+  checkForUpdates();
   await loadSettings();
   renderAddons();
   setupSearch();

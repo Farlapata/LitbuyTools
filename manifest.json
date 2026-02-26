@@ -1,7 +1,8 @@
-﻿{
+{
   "manifest_version": 3,
   "name": "LitbuyTools",
-  "version": "0.9.0",
+  "version": "0.8.9",
+  "version_name": "0.9.0 BETA",
   "description": "Powerful toolkit for Litbuy - QC automation, utilities, and productivity enhancements",
   "permissions": [
     "activeTab",
@@ -19,7 +20,9 @@
     "https://*.taobao.com/*",
     "https://*.tmall.com/*",
     "https://*.weidian.com/*",
-    "https://*.1688.com/*"
+    "https://*.1688.com/*",
+    "https://api.github.com/*",
+    "https://raw.githubusercontent.com/*"
   ],
   "content_scripts": [
     {
@@ -56,4 +59,3 @@
     "128": "icons/icon128.png"
   }
 }
-

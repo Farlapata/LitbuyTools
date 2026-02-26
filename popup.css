@@ -72,6 +72,44 @@ body {
   background: rgba(255, 255, 255, 0.25);
 }
 
+.hidden {
+  display: none !important;
+}
+
+.update-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #262626;
+  border-bottom: 1px solid #333;
+}
+
+.update-banner-text {
+  font-size: 12px;
+  color: #ffd6a3;
+  font-weight: 500;
+}
+
+.update-banner-btn {
+  border: 1px solid #ff8c1a;
+  background: #ff8c1a;
+  color: white;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.update-banner-btn:hover {
+  background: #ff7700;
+  border-color: #ff7700;
+}
+
 /* Search */
 .search-container {
   position: relative;
