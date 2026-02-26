@@ -34,6 +34,46 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     });
     return true; // keep channel open for async
   }
+
+  if (request.action === 'openBatchLinks') {
+    const urls = Array.isArray(request.urls) ? request.urls.filter((url) => typeof url === 'string' && /^https?:\/\//i.test(url)) : [];
+    const intervalMs = Number.isFinite(request.intervalMs) ? Math.max(0, request.intervalMs) : 180;
+
+    openBatchLinks(urls, intervalMs)
+      .then((opened) => {
+        sendResponse({ success: true, opened });
+      })
+      .catch((err) => {
+        console.error('[LitbuyTools BG] openBatchLinks error:', err);
+        sendResponse({ success: false, error: err.message });
+      });
+
+    return true;
+  }
+
+  if (request.action === 'resolveMarketplaceUrl') {
+    const rawUrl = typeof request.url === 'string' ? request.url : '';
+    resolveMarketplaceUrl(rawUrl)
+      .then((result) => sendResponse(result))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (request.action === 'fetchLitbuyThumbnail') {
+    const litbuyUrl = typeof request.url === 'string' ? request.url : '';
+    fetchLitbuyThumbnail(litbuyUrl)
+      .then((result) => sendResponse(result))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (request.action === 'fetchSourceThumbnail') {
+    const sourceUrl = typeof request.url === 'string' ? request.url : '';
+    fetchSourceThumbnail(sourceUrl)
+      .then((result) => sendResponse(result))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
 });
 
 async function loadSettings() {
@@ -60,6 +100,376 @@ async function handleQCCheck(sourceUrl, productName, settings) {
       }).catch(err => console.error('[LitbuyTools BG] Inject failed:', err));
     }
   });
+}
+
+async function openBatchLinks(urls, intervalMs) {
+  let opened = 0;
+
+  for (let i = 0; i < urls.length; i++) {
+    const url = urls[i];
+    await chrome.tabs.create({
+      url,
+      active: i === 0
+    });
+    opened += 1;
+
+    if (i < urls.length - 1 && intervalMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+  }
+
+  return opened;
+}
+
+function decodeEscapedUrl(value) {
+  if (!value) return '';
+  let decoded = String(value);
+  for (let i = 0; i < 2; i += 1) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) break;
+      decoded = next;
+    } catch {
+      break;
+    }
+  }
+
+  return decoded
+    .replace(/\\u002F/gi, '/')
+    .replace(/\\\//g, '/')
+    .replace(/&amp;/gi, '&');
+}
+
+const WRAPPED_URL_PARAM_NAMES = [
+  'url',
+  'target',
+  'targeturl',
+  'redirect',
+  'redirecturl',
+  'redirect_url',
+  'dest',
+  'destination',
+  'to',
+  'u',
+  'link',
+  'itemlink',
+  'goodslink',
+  'productlink'
+];
+
+function extractEmbeddedMarketplaceUrlCandidates(value) {
+  const candidates = [];
+  const seen = new Set();
+
+  const pushCandidate = (candidate) => {
+    if (!candidate) return;
+    let normalized = decodeEscapedUrl(candidate).trim();
+    if (!normalized) return;
+    if (normalized.startsWith('//')) normalized = `https:${normalized}`;
+    normalized = normalized.replace(/["'<>\\]+$/g, '');
+    normalized = normalized.replace(/[),.;]+$/g, '');
+    if (!/^https?:\/\//i.test(normalized)) return;
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    candidates.push(normalized);
+  };
+
+  const text = String(value || '');
+  [text, decodeEscapedUrl(text)].forEach((chunk) => {
+    if (!chunk) return;
+    pushCandidate(chunk);
+
+    const patterns = [
+      /https?:\/\/(?:detail|m)\.1688\.com\/offer\/\d+\.html[^"'\\s<>)]*/ig,
+      /https?:\/\/(?:item|h5\.m|m(?:\.intl)?)\.taobao\.com\/[^"'\\s<>)]*/ig,
+      /https?:\/\/(?:detail|item|m)\.tmall\.com\/[^"'\\s<>)]*/ig,
+      /https?:\/\/(?:[a-z0-9-]+\.)*weidian\.com\/item\.html\?[^"'\\s<>)]*/ig,
+      /https?:\/\/(?:e|m)\.tb\.cn\/[^"'\\s<>)]*/ig
+    ];
+
+    for (const pattern of patterns) {
+      const matches = chunk.match(pattern) || [];
+      matches.forEach(pushCandidate);
+    }
+  });
+
+  return candidates;
+}
+
+function parseMarketplaceDetailsFromUrl(rawUrl, depth = 0) {
+  if (depth > 2) return null;
+
+  let url;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+
+  const host = (url.hostname || '').toLowerCase();
+  const path = url.pathname || '';
+  const normalizedUrl = url.toString();
+
+  if (/^(?:detail|m)\.1688\.com$/i.test(host)) {
+    const match = path.match(/\/offer\/(\d+)\.html/i);
+    if (match) {
+      return { channel: '1688', id: match[1], resolvedUrl: normalizedUrl };
+    }
+  }
+
+  if (/^(?:item|h5\.m|m(?:\.intl)?)\.taobao\.com$/i.test(host)) {
+    const id =
+      url.searchParams.get('id') ||
+      url.searchParams.get('item_id') ||
+      url.searchParams.get('itemId') ||
+      url.searchParams.get('itemid') ||
+      (path.match(/(?:^|\/)i(\d+)\.htm/i)?.[1] || '');
+    if (id && /^\d+$/.test(id)) {
+      return { channel: 'taobao', id, resolvedUrl: normalizedUrl };
+    }
+  }
+
+  if (/^(?:detail|item|m)\.tmall\.com$/i.test(host)) {
+    const id =
+      url.searchParams.get('id') ||
+      url.searchParams.get('item_id') ||
+      url.searchParams.get('itemId') ||
+      url.searchParams.get('itemid');
+    if (id && /^\d+$/.test(id)) {
+      return { channel: 'tmall', id, resolvedUrl: normalizedUrl };
+    }
+  }
+
+  if (/^(?:[a-z0-9-]+\.)*weidian\.com$/i.test(host)) {
+    const id =
+      url.searchParams.get('itemID') ||
+      url.searchParams.get('itemId') ||
+      url.searchParams.get('itemid');
+    if (id && /^\d+$/.test(id)) {
+      return { channel: 'weidian', id, resolvedUrl: normalizedUrl };
+    }
+  }
+
+  for (const paramName of WRAPPED_URL_PARAM_NAMES) {
+    const values = url.searchParams.getAll(paramName);
+    for (const value of values) {
+      const candidates = extractEmbeddedMarketplaceUrlCandidates(value);
+      for (const candidate of candidates) {
+        const nested = parseMarketplaceDetailsFromUrl(candidate, depth + 1);
+        if (nested) return nested;
+      }
+    }
+  }
+
+  const embeddedInUrl = extractEmbeddedMarketplaceUrlCandidates(normalizedUrl);
+  for (const candidate of embeddedInUrl) {
+    if (candidate === normalizedUrl) continue;
+    const nested = parseMarketplaceDetailsFromUrl(candidate, depth + 1);
+    if (nested) return nested;
+  }
+
+  return null;
+}
+
+function extractMarketplaceUrlFromHtml(html) {
+  if (!html) return null;
+
+  const candidates = extractEmbeddedMarketplaceUrlCandidates(html);
+  for (const candidate of candidates) {
+    const parsed = parseMarketplaceDetailsFromUrl(candidate);
+    if (parsed) return parsed;
+  }
+
+  return null;
+}
+
+async function resolveMarketplaceUrl(rawUrl) {
+  if (!rawUrl || !/^https?:\/\//i.test(rawUrl)) {
+    return { success: false, error: 'Invalid URL' };
+  }
+
+  const direct = parseMarketplaceDetailsFromUrl(rawUrl);
+  if (direct) {
+    return { success: true, ...direct };
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 9000);
+
+  try {
+    const response = await fetch(rawUrl, {
+      method: 'GET',
+      redirect: 'follow',
+      cache: 'no-store',
+      signal: controller.signal
+    });
+
+    const resolvedFromUrl = parseMarketplaceDetailsFromUrl(response.url);
+    if (resolvedFromUrl) {
+      return { success: true, ...resolvedFromUrl };
+    }
+
+    const html = await response.text();
+    const resolvedFromHtml = extractMarketplaceUrlFromHtml(html);
+    if (resolvedFromHtml) {
+      return { success: true, ...resolvedFromHtml };
+    }
+
+    return { success: false, error: 'Could not resolve to supported marketplace URL' };
+  } catch (err) {
+    return { success: false, error: err.message || 'Resolve failed' };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function normalizeImageCandidate(value) {
+  if (!value) return '';
+
+  let normalized = decodeEscapedUrl(value).trim();
+  if (!normalized) return '';
+  if (normalized.startsWith('//')) normalized = `https:${normalized}`;
+  normalized = normalized.replace(/["'<>\\]+$/g, '');
+  normalized = normalized.replace(/[),.;]+$/g, '');
+  if (!/^https?:\/\//i.test(normalized)) return '';
+  return normalized;
+}
+
+function collectRegexImageCandidates(html, patterns) {
+  const collected = [];
+  for (const pattern of patterns) {
+    const flags = pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`;
+    const regex = new RegExp(pattern.source, flags);
+    for (const match of html.matchAll(regex)) {
+      if (match && match[1]) {
+        collected.push(match[1]);
+      } else if (match && match[0]) {
+        collected.push(match[0]);
+      }
+    }
+  }
+  return collected;
+}
+
+function pickBestImageCandidate(candidates) {
+  const scored = [];
+  for (const candidate of candidates) {
+    const normalized = normalizeImageCandidate(candidate);
+    if (!normalized) continue;
+    if (/logo|favicon|avatar|sprite|blank|loading|spinner|skeleton|icon/i.test(normalized)) continue;
+
+    let score = 0;
+    if (/alicdn|geilicdn|taobao|tmall|weidian|1688/i.test(normalized)) score += 40;
+    if (/\.(?:jpe?g|png|webp)(?:[?#]|$)/i.test(normalized)) score += 20;
+    if (/bao\/uploaded|\/uploaded\//i.test(normalized)) score += 15;
+    if (/thumb|small|64x64|80x80|100x100/i.test(normalized)) score -= 20;
+    scored.push({ url: normalized, score });
+  }
+
+  if (scored.length === 0) return '';
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0].url;
+}
+
+function extractLitbuyThumbnailFromHtml(html) {
+  if (!html) return '';
+
+  const patterns = [
+    /<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["']/ig,
+    /<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:image["']/ig,
+    /<meta[^>]+name=["']twitter:image["'][^>]*content=["']([^"']+)["']/ig,
+    /"mainImage"\s*:\s*"([^"]+)"/ig,
+    /"image"\s*:\s*"([^"]+)"/ig,
+    /"img(?:Url)?"\s*:\s*"([^"]+)"/ig,
+    /<img[^>]+src=["']([^"']+)["'][^>]*>/ig,
+    /https?:\/\/(?:si\.geilicdn\.com|img\.alicdn\.com|gd\d+\.alicdn\.com|gw\.alicdn\.com|cbu01\.alicdn\.com)\/[^"'\\s<>]+/ig
+  ];
+
+  const candidates = collectRegexImageCandidates(html, patterns);
+  return pickBestImageCandidate(candidates);
+}
+
+function extractSourceThumbnailFromHtml(html) {
+  if (!html) return '';
+
+  const patterns = [
+    /<link[^>]+rel=["']preload["'][^>]+as=["']image["'][^>]+href=["']([^"']+)["']/ig,
+    /<link[^>]+href=["']([^"']+)["'][^>]+rel=["']preload["'][^>]+as=["']image["']/ig,
+    /<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["']/ig,
+    /<meta[^>]+name=["']twitter:image["'][^>]*content=["']([^"']+)["']/ig,
+    /"image"\s*:\s*"([^"]+)"/ig,
+    /"img(?:Url)?"\s*:\s*"([^"]+)"/ig,
+    /<img[^>]+src=["']([^"']+)["'][^>]*>/ig,
+    /https?:\/\/(?:si\.geilicdn\.com|img\.alicdn\.com|gd\d+\.alicdn\.com|gw\.alicdn\.com|cbu01\.alicdn\.com)\/[^"'\\s<>]+/ig
+  ];
+
+  const candidates = collectRegexImageCandidates(html, patterns);
+  return pickBestImageCandidate(candidates);
+}
+
+async function fetchLitbuyThumbnail(rawUrl) {
+  if (!rawUrl || !/^https?:\/\//i.test(rawUrl)) {
+    return { success: false, error: 'Invalid URL' };
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 4500);
+
+  try {
+    const response = await fetch(rawUrl, {
+      method: 'GET',
+      redirect: 'follow',
+      cache: 'no-store',
+      signal: controller.signal
+    });
+
+    const finalUrl = response.url || rawUrl;
+    if (!/^https?:\/\/(?:www\.)?litbuy\.com\//i.test(finalUrl)) {
+      return { success: false, error: 'Not a Litbuy URL' };
+    }
+
+    const html = await response.text();
+    const thumbnailUrl = extractLitbuyThumbnailFromHtml(html);
+    if (!thumbnailUrl) {
+      return { success: false, error: 'No thumbnail found' };
+    }
+
+    return { success: true, thumbnailUrl };
+  } catch (err) {
+    return { success: false, error: err.message || 'Thumbnail fetch failed' };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function fetchSourceThumbnail(rawUrl) {
+  if (!rawUrl || !/^https?:\/\//i.test(rawUrl)) {
+    return { success: false, error: 'Invalid URL' };
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 4500);
+
+  try {
+    const response = await fetch(rawUrl, {
+      method: 'GET',
+      redirect: 'follow',
+      cache: 'no-store',
+      signal: controller.signal
+    });
+
+    const html = await response.text();
+    const thumbnailUrl = extractSourceThumbnailFromHtml(html);
+    if (!thumbnailUrl) {
+      return { success: false, error: 'No source thumbnail found' };
+    }
+
+    return { success: true, thumbnailUrl };
+  } catch (err) {
+    return { success: false, error: err.message || 'Source thumbnail fetch failed' };
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 /**

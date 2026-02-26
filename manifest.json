@@ -12,13 +12,30 @@
   "host_permissions": [
     "https://litbuy.com/*",
     "https://www.litbuy.com/*",
-    "https://www.uufinds.com/*"
+    "https://www.uufinds.com/*",
+    "https://e.tb.cn/*",
+    "https://m.tb.cn/*",
+    "https://tb.cn/*",
+    "https://*.taobao.com/*",
+    "https://*.tmall.com/*",
+    "https://*.weidian.com/*",
+    "https://*.1688.com/*"
   ],
   "content_scripts": [
     {
       "matches": ["https://litbuy.com/*", "https://www.litbuy.com/*"],
       "js": ["content.js"],
       "css": ["styles.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.reddit.com/*",
+        "https://reddit.com/*",
+        "https://old.reddit.com/*"
+      ],
+      "js": ["link_router.js"],
+      "css": ["link_router.css"],
       "run_at": "document_idle"
     }
   ],

@@ -53,58 +53,98 @@
     'tmall': (id) => `https://detail.tmall.com/item.htm?id=${id}`
   };
 
+  const CHANNEL_ALIASES = {
+    '0': 'taobao',
+    '1': 'tmall',
+    '2': '1688',
+    '3': 'weidian',
+    'tb': 'taobao',
+    'taobao': 'taobao',
+    'tm': 'tmall',
+    'tmall': 'tmall',
+    '1688': '1688',
+    'ali_1688': '1688',
+    'wd': 'weidian',
+    'weidian': 'weidian'
+  };
+
+  function normalizeChannel(channel) {
+    if (!channel) return '';
+    const key = String(channel).trim().toLowerCase();
+    return CHANNEL_ALIASES[key] || '';
+  }
+
+  function isLitbuyProductPage() {
+    const path = window.location.pathname || '';
+    return /^\/products\/details(?:\/|$)/i.test(path) ||
+      /^\/products\/[^\/?#]+\/\d+/i.test(path) ||
+      /^\/product\/[^\/?#]+\/\d+/i.test(path) ||
+      /^\/product\/\d+/i.test(path);
+  }
+
   /**
    * Get product info from CURRENT URL (always fresh)
    */
   function getCurrentProductInfo() {
-    const url = window.location.href;
-    const params = new URLSearchParams(window.location.search);
-    let id = params.get('id');
-    let channel = params.get('channel');
-    
-    // If no query params, try to extract from path
-    if (!id || !channel) {
-      // Try /products/{channel}/{id}
-      let pathMatch = url.match(/\/products\/([^\/]+)\/([^\/\?]+)/);
-      if (pathMatch) {
-        channel = pathMatch[1];
-        id = pathMatch[2];
-      } else {
-        // Try /product/{channel}/{id} format
-        pathMatch = url.match(/\/product\/([^\/]+)\/([^\/\?]+)/);
-        if (pathMatch) {
-          // Map channel number to channel name
-          const channelMap = {
-            '1': '1688',
-            '2': 'WEIDIAN',
-            '3': 'TAOBAO'
-          };
-          channel = channelMap[pathMatch[1]] || pathMatch[1];
-          id = pathMatch[2];
-        }
+    const currentUrl = window.location.href;
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(currentUrl);
+    } catch {
+      return { id: '', channel: '', channelRaw: '', url: currentUrl };
+    }
+
+    const params = parsedUrl.searchParams;
+    let id = params.get('id') || params.get('item_id') || '';
+    let channelRaw = params.get('channel') || params.get('platform') || '';
+
+    if (!id || !channelRaw) {
+      const path = parsedUrl.pathname || '';
+
+      const detailsPathMatch = path.match(/\/products\/([^\/?#]+)\/(\d+)/i);
+      if (detailsPathMatch) {
+        channelRaw = channelRaw || detailsPathMatch[1];
+        id = id || detailsPathMatch[2];
+      }
+
+      const compactProductMatch = path.match(/\/product\/([^\/?#]+)\/(\d+)/i);
+      if (compactProductMatch) {
+        channelRaw = channelRaw || compactProductMatch[1];
+        id = id || compactProductMatch[2];
+      }
+
+      const bareProductMatch = path.match(/\/product\/(\d+)/i);
+      if (bareProductMatch) {
+        id = id || bareProductMatch[1];
       }
     }
-    
-    return { id, channel, url };
+
+    const channel = normalizeChannel(channelRaw);
+    return { id, channel, channelRaw, url: currentUrl };
   }
 
   /**
    * Build the marketplace source URL
    */
-  function buildSourceUrl(id, channel) {
-    if (!id || !channel) return null;
-    const builder = SOURCE_URLS[channel.toLowerCase()];
-    return builder ? builder(id) : null;
+  function buildSourceUrl(id, channel, channelRaw = '') {
+    if (!id) return null;
+
+    const normalizedChannel = normalizeChannel(channel) || normalizeChannel(channelRaw);
+    const builder = SOURCE_URLS[normalizedChannel];
+    if (builder) return builder(id);
+
+    // Fallback for new path format where channel can be missing/obfuscated.
+    return SOURCE_URLS.taobao(id);
   }
 
   /**
    * The click handler - reads URL fresh each time
    */
   function onCheckQCClick() {
-    const { id, channel, url } = getCurrentProductInfo();
+    const { id, channel, channelRaw, url } = getCurrentProductInfo();
     console.log('[LitbuyTools] Click! URL:', url, 'ID:', id, 'Channel:', channel);
     
-    const sourceUrl = buildSourceUrl(id, channel);
+    const sourceUrl = buildSourceUrl(id, channel, channelRaw);
     if (!sourceUrl) {
       alert('Could not extract product info.\nURL: ' + url);
       return;
@@ -127,23 +167,26 @@
    * Find the container that holds "Force refresh" and "Product Link"
    */
   function findButtonArea() {
-    const spans = document.querySelectorAll('span');
-    for (const span of spans) {
-      const text = span.textContent.trim();
-      if (text === 'Force refresh') {
-        // Go up to find the container that holds all buttons
-        let container = span.parentElement;
-        // Keep going up until we find a container with multiple children
-        for (let i = 0; i < 5; i++) {
-          if (container && container.children.length >= 2) {
-            return { container, refSpan: span, refElement: container.children[0] };
-          }
-          container = container ? container.parentElement : null;
+    const controls = document.querySelectorAll('button, span, a');
+    for (const control of controls) {
+      const text = (control.textContent || '').trim().toLowerCase();
+      if (text !== 'force refresh' && text !== 'product link') continue;
+
+      let container = control.parentElement;
+      for (let i = 0; i < 7; i++) {
+        if (!container) break;
+        const buttonLikeCount = container.querySelectorAll('button, span, a').length;
+        if (buttonLikeCount >= 2) {
+          return { container, refElement: container.children[0] || control, floating: false };
         }
-        // Fallback: just use the parent
-        return { container: span.parentElement, refSpan: span, refElement: span };
+        container = container.parentElement;
+      }
+
+      if (control.parentElement) {
+        return { container: control.parentElement, refElement: control };
       }
     }
+
     return null;
   }
 
@@ -156,25 +199,27 @@
     btn.id = BUTTON_ID;
     
     // Copy the computed styles from the reference element
-    const refStyles = window.getComputedStyle(refElement);
+    const refStyles = refElement ? window.getComputedStyle(refElement) : null;
     
     // Apply matching styles
     btn.style.cssText = `
       display: inline-flex;
       align-items: center;
       cursor: pointer;
-      color: ${refStyles.color || '#333'};
-      font-size: ${refStyles.fontSize || '14px'};
-      font-family: ${refStyles.fontFamily || 'inherit'};
+      color: ${(refStyles && refStyles.color) || '#333'};
+      font-size: ${(refStyles && refStyles.fontSize) || '14px'};
+      font-family: ${(refStyles && refStyles.fontFamily) || 'inherit'};
       margin-right: 16px;
       user-select: none;
       -webkit-user-select: none;
     `;
 
     // Copy all data-v-* attributes from the reference for Vue scoped CSS
-    for (const attr of refElement.attributes) {
-      if (attr.name.startsWith('data-v-')) {
-        btn.setAttribute(attr.name, attr.value);
+    if (refElement) {
+      for (const attr of refElement.attributes) {
+        if (attr.name.startsWith('data-v-')) {
+          btn.setAttribute(attr.name, attr.value);
+        }
       }
     }
 
@@ -206,7 +251,15 @@
       return false;
     }
 
-    if (document.getElementById(BUTTON_ID)) return true;
+    const existing = document.getElementById(BUTTON_ID);
+    if (existing) {
+      // Migrate old floating fallback buttons to inline placement.
+      if (existing.style.position === 'fixed') {
+        existing.remove();
+      } else {
+        return true;
+      }
+    }
 
     const area = findButtonArea();
     if (!area) return false;
@@ -1029,8 +1082,8 @@
     // Start cart click preview
     watchCartClickPreview();
 
-    const { id, channel } = getCurrentProductInfo();
-    if (!id || !channel) {
+    const { id } = getCurrentProductInfo();
+    if (!isLitbuyProductPage() || !id) {
       console.log('[LitbuyTools] Not a product page');
       return;
     }
@@ -1098,8 +1151,8 @@
         previewTimeout = null;
       }
       
-      const { id, channel } = getCurrentProductInfo();
-      if (id && channel) {
+      const { id } = getCurrentProductInfo();
+      if (isLitbuyProductPage() && id) {
         let retries = 0;
         const interval = setInterval(() => {
           retries++;

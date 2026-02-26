@@ -84,6 +84,37 @@ const ADDONS = [
     ]
   },
   {
+    id: 'link-router',
+    name: 'Link Choice Popup',
+    description: 'Choose to open supported links in original site or Litbuy',
+    icon: `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M10.59 13.41a2 2 0 0 0 2.82 0l3.59-3.59a2 2 0 0 0-2.82-2.82l-1.29 1.3a1 1 0 1 1-1.42-1.42l1.3-1.3a4 4 0 1 1 5.65 5.66l-3.59 3.59a4 4 0 0 1-5.66 0 1 1 0 0 1 1.42-1.42zm2.82-2.82a2 2 0 0 0-2.82 0L7 14.18A2 2 0 0 0 9.82 17l1.3-1.3a1 1 0 0 1 1.41 1.42l-1.29 1.29a4 4 0 1 1-5.66-5.65l3.59-3.59a4 4 0 0 1 5.66 0 1 1 0 0 1-1.42 1.42z"/>
+    </svg>`,
+    settingsKey: 'linkRouterEnabled',
+    defaultEnabled: true,
+    settings: []
+  },
+  {
+    id: 'thread-harvester',
+    name: 'Thread Harvester',
+    description: 'Scan Reddit threads, dedupe links, and queue Litbuy opens',
+    icon: `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M20 2H8a2 2 0 0 0-2 2v4H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4h2a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zM8 4h12v10h-2v-4a2 2 0 0 0-2-2H8V4zm8 16H4V10h12v10zm-9-7h6v2H7v-2zm0 3h4v2H7v-2z"/>
+    </svg>`,
+    settingsKey: 'threadHarvesterEnabled',
+    defaultEnabled: true,
+    settings: [
+      {
+        id: 'thread-harvester-litbuy-images',
+        name: 'Litbuy Product Images',
+        description: 'Load product thumbnails from Litbuy pages (slower)',
+        type: 'toggle',
+        defaultValue: false,
+        settingsKey: 'threadHarvesterLitbuyImagesEnabled'
+      }
+    ]
+  },
+  {
     id: 'remove-warning',
     name: 'Auto-Remove Purchase Warning',
     description: 'Automatically dismiss purchase notice popups',
