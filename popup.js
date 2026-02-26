@@ -501,12 +501,10 @@ async function checkForUpdates() {
       cache.currentVersion === currentVersion &&
       now - cache.timestamp < UPDATE_CACHE_TTL_MS;
 
-    if (cacheIsFresh) {
-      if (cache.hasUpdate && cache.latestVersion) {
-        showUpdateBanner(cache.latestVersion, cache.releaseUrl);
-      } else {
-        hideUpdateBanner();
-      }
+    // Use cache only for "no update" state.
+    // If cache says update exists, revalidate live to avoid stale false positives.
+    if (cacheIsFresh && !cache.hasUpdate) {
+      hideUpdateBanner();
       return;
     }
 
