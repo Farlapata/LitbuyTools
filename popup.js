@@ -518,13 +518,7 @@ async function checkForUpdates() {
     });
   } catch (error) {
     console.warn('LitbuyTools: update check failed.', error);
-
-    // Network failure fallback: use last known cached result for this version.
-    if (cache && cache.currentVersion === currentVersion && cache.hasUpdate && cache.latestVersion) {
-      showUpdateBanner(cache.latestVersion, cache.releaseUrl);
-    } else {
-      hideUpdateBanner();
-    }
+    hideUpdateBanner();
   }
 }
 
