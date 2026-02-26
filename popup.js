@@ -355,7 +355,6 @@ let settingsChanged = false;
 const UPDATE_REPO = 'Farlapata/LitbuyTools';
 const UPDATE_REPO_URL = `https://github.com/${UPDATE_REPO}`;
 const UPDATE_CACHE_KEY = 'updateCheckCache';
-const UPDATE_CACHE_TTL_MS = 30 * 60 * 1000;
 
 function parseVersionParts(versionText) {
   const match = String(versionText || '').match(/(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
@@ -493,20 +492,11 @@ async function checkForUpdates() {
   const manifest = chrome.runtime.getManifest();
   const currentVersion = manifest.version;
   const now = Date.now();
+  let cache = null;
 
   try {
     const cachedData = await getLocalStorage([UPDATE_CACHE_KEY]);
-    const cache = cachedData?.[UPDATE_CACHE_KEY];
-    const cacheIsFresh = cache &&
-      cache.currentVersion === currentVersion &&
-      now - cache.timestamp < UPDATE_CACHE_TTL_MS;
-
-    // Use cache only for "no update" state.
-    // If cache says update exists, revalidate live to avoid stale false positives.
-    if (cacheIsFresh && !cache.hasUpdate) {
-      hideUpdateBanner();
-      return;
-    }
+    cache = cachedData?.[UPDATE_CACHE_KEY];
 
     const latest = await fetchLatestRemoteVersion();
     const hasUpdate = Boolean(latest?.version && isRemoteVersionNewer(latest.version, currentVersion));
@@ -528,7 +518,13 @@ async function checkForUpdates() {
     });
   } catch (error) {
     console.warn('LitbuyTools: update check failed.', error);
-    hideUpdateBanner();
+
+    // Network failure fallback: use last known cached result for this version.
+    if (cache && cache.currentVersion === currentVersion && cache.hasUpdate && cache.latestVersion) {
+      showUpdateBanner(cache.latestVersion, cache.releaseUrl);
+    } else {
+      hideUpdateBanner();
+    }
   }
 }
 
