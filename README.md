@@ -1,6 +1,6 @@
 ﻿# 🚀 LitbuyTools
 
-![Version](https://img.shields.io/badge/version-0.8.5-blue.svg)
+![Version](https://img.shields.io/badge/version-0.9.0-blue.svg)
 ![Status](https://img.shields.io/badge/status-BETA-yellow.svg)
 ![Chrome](https://img.shields.io/badge/chrome-extension-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
@@ -162,7 +162,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 This extension is under active development. Features may change, break, or work unexpectedly.  
 Your feedback helps make it better for everyone!
 
-**Current Version:** 0.8.5 BETA
+**Current Version:** 0.9.0 BETA
 
 </div>
+
 
