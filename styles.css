@@ -1,0 +1,11 @@
+/**
+ * Litbuy QC Helper - Styles
+ * Minimal styling - button inherits styles from cloned Litbuy buttons
+ */
+
+/* Ensure our button ID doesn't interfere with cloned styles */
+#litbuy-qc-check-btn {
+  /* Button styling is inherited from the cloned Force refresh button */
+  /* No custom styles needed - matches Litbuy's native design perfectly */
+  display: inline-flex;
+}

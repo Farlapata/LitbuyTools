@@ -1,0 +1,64 @@
+{
+  "manifest_version": 3,
+  "name": "LitbuyTools",
+  "version": "1.0.0",
+  "version_name": "1.0",
+  "description": "Powerful toolkit for Litbuy - QC automation, utilities, and productivity enhancements",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs",
+    "windows",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://litbuy.com/*",
+    "https://www.litbuy.com/*",
+    "https://acbuy.com/*",
+    "https://www.acbuy.com/*",
+    "https://www.uufinds.com/*",
+    "https://e.tb.cn/*",
+    "https://m.tb.cn/*",
+    "https://tb.cn/*",
+    "https://*.taobao.com/*",
+    "https://*.tmall.com/*",
+    "https://*.weidian.com/*",
+    "https://*.1688.com/*",
+    "https://api.github.com/*",
+    "https://raw.githubusercontent.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://litbuy.com/*", "https://www.litbuy.com/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.reddit.com/*",
+        "https://reddit.com/*",
+        "https://old.reddit.com/*"
+      ],
+      "js": ["link_router.js"],
+      "css": ["link_router.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
